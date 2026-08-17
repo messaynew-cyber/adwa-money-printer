@@ -1,0 +1,92 @@
+name: MPT Video Factory
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Video topic'
+        required: true
+        default: '5 surprising facts about space'
+      language:
+        description: 'Language code (en-US, zh-CN, etc)'
+        required: false
+        default: 'en-US'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install runtime deps
+        run: |
+          pip install --quiet --no-cache-dir \
+            moviepy==2.2.1 \
+            faster-whisper==1.1.0 \
+            edge-tts==7.2.7 \
+            loguru \
+            "google-genai" \
+            openai \
+            litellm \
+            requests \
+            pyyaml \
+            pydub \
+            "qwen" "groq" 2>/dev/null || true
+          pip install --quiet --no-cache-dir \
+            moviepy==2.2.1 edge-tts==7.2.7 loguru google-genai openai litellm requests pyyaml pydub
+          echo "deps installed"
+
+      - name: Write config
+        run: |
+          cat > config.toml << 'CONFIG'
+          log_level = "INFO"
+          listen_host = "0.0.0.0"
+          listen_port = 8080
+
+          [app]
+          llm_provider = "gemini"
+          gemini_api_key = "${{ secrets.GEMINI_API_KEY }}"
+          tts_provider = "edge"
+          pexels_api_keys = ["${{ secrets.PEXELS_API_KEY }}"]
+          CONFIG
+
+      - name: Clone MPT + generate
+        id: gen
+        run: |
+          git clone --quiet --depth 1 https://github.com/harry0703/MoneyPrinterTurbo.git repo
+          cd repo
+          cp ../config.toml ./config.toml
+          export PYTHONPATH=$PWD
+          python cli.py \
+            --video-subject "${{ github.event.inputs.topic }}" \
+            --video-language "${{ github.event.inputs.language }}" \
+            --voice-name "en-US-ChristopherNeural" \
+            --paragraph-number 1 \
+            --video-aspect 9:16 \
+            --font-size 60 2>&1 | tail -50
+          OUTPUT=$(find storage -name "*.mp4" 2>/dev/null | head -1)
+          echo "OUTPUT_ABS=$PWD/$OUTPUT" >> "$GITHUB_OUTPUT"
+          echo "Found MP4: $OUTPUT"
+          if [ -z "$OUTPUT" ]; then
+            echo "=== tree of storage ==="
+            find storage -type f | head -40 || echo "no storage"
+            exit 1
+          fi
+
+      - name: Upload video
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-short
+          path: ${{ steps.gen.outputs.OUTPUT_ABS }}

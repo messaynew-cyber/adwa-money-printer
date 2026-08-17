@@ -45,7 +45,7 @@ jobs:
           [app]
           llm_provider = "gemini"
           gemini_api_key = "${{ secrets.GEMINI_API_KEY }}"
-          gemini_model = "gemini-2.5-flash"
+          gemini_model_name = "gemini-2.5-flash"
           tts_provider = "edge"
           pexels_api_keys = ["${{ secrets.PEXELS_API_KEY }}"]
           CONFIG

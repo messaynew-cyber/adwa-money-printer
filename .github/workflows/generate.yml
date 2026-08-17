@@ -30,23 +30,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install runtime deps
+      - name: Clone MoneyPrinterTurbo
         run: |
-          pip install --quiet --no-cache-dir \
-            moviepy==2.2.1 \
-            faster-whisper==1.1.0 \
-            edge-tts==7.2.7 \
-            loguru \
-            "google-genai" \
-            openai \
-            litellm \
-            requests \
-            pyyaml \
-            pydub \
-            "qwen" "groq" 2>/dev/null || true
-          pip install --quiet --no-cache-dir \
-            moviepy==2.2.1 edge-tts==7.2.7 loguru google-genai openai litellm requests pyyaml pydub
-          echo "deps installed"
+          git clone --quiet --depth 1 https://github.com/harry0703/MoneyPrinterTurbo.git repo
+          ls repo/cli.py && echo "CLONE OK"
 
       - name: Write config
         run: |
@@ -61,13 +48,20 @@ jobs:
           tts_provider = "edge"
           pexels_api_keys = ["${{ secrets.PEXELS_API_KEY }}"]
           CONFIG
+          cp config.toml repo/config.toml
+          echo "config written and copied"
 
-      - name: Clone MPT + generate
+      - name: Install MPT deps (own requirements.txt)
+        run: |
+          python -m pip install --quiet --upgrade pip
+          pip install --quiet -r repo/requirements.txt
+          echo "MPT deps installed"
+          python -c "import moviepy, edge_tts, google.genai; print('imports OK')"
+
+      - name: Generate video (headless CLI)
         id: gen
         run: |
-          git clone --quiet --depth 1 https://github.com/harry0703/MoneyPrinterTurbo.git repo
           cd repo
-          cp ../config.toml ./config.toml
           export PYTHONPATH=$PWD
           python cli.py \
             --video-subject "${{ github.event.inputs.topic }}" \
@@ -75,18 +69,20 @@ jobs:
             --voice-name "en-US-ChristopherNeural" \
             --paragraph-number 1 \
             --video-aspect 9:16 \
-            --font-size 60 2>&1 | tail -50
+            --font-size 60 2>&1 | tail -60
+          echo "=== CLI exit: done ==="
           OUTPUT=$(find storage -name "*.mp4" 2>/dev/null | head -1)
           echo "OUTPUT_ABS=$PWD/$OUTPUT" >> "$GITHUB_OUTPUT"
-          echo "Found MP4: $OUTPUT"
           if [ -z "$OUTPUT" ]; then
-            echo "=== tree of storage ==="
-            find storage -type f | head -40 || echo "no storage"
+            echo "NO MP4 GENERATED"
+            find storage -type f 2>/dev/null | head -40 || echo "storage empty/missing"
             exit 1
           fi
+          echo "FOUND MP4: $OUTPUT"
 
       - name: Upload video
         uses: actions/upload-artifact@v4
         with:
           name: generated-short
           path: ${{ steps.gen.outputs.OUTPUT_ABS }}
+          if-no-files-found: error
